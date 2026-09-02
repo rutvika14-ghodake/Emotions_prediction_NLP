@@ -1,12 +1,35 @@
 from flask import Flask, request, render_template_string
 import pickle
 import re
+import os
+
+import nltk
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+
+
+# =========================================================
+# FLASK APP
+# =========================================================
 
 app = Flask(__name__)
 
-# --------------------------------------------------
-# Load Model and TF-IDF Vectorizer
-# --------------------------------------------------
+
+# =========================================================
+# NLTK DATA
+# =========================================================
+
+nltk.download("punkt", quiet=True)
+nltk.download("punkt_tab", quiet=True)
+nltk.download("stopwords", quiet=True)
+nltk.download("wordnet", quiet=True)
+nltk.download("omw-1.4", quiet=True)
+
+
+# =========================================================
+# LOAD MODEL AND TF-IDF
+# =========================================================
 
 with open("emotion_model.pkl", "rb") as file:
     model = pickle.load(file)
@@ -15,323 +38,371 @@ with open("tfidf.pkl", "rb") as file:
     tfidf = pickle.load(file)
 
 
-# --------------------------------------------------
-# Text Cleaning
-# --------------------------------------------------
+# =========================================================
+# TEXT PREPROCESSING
+# =========================================================
+
+stop_words = set(stopwords.words("english"))
+
+# Keep important negation words
+negation_words = {"no", "not", "nor", "never"}
+
+stop_words = stop_words - negation_words
+
+lemmatizer = WordNetLemmatizer()
+
 
 def clean_text(text):
-    # Convert to lowercase
+
+    # Lowercase
     text = text.lower()
 
     # Remove HTML tags
-    text = re.sub(r'<.*?>', ' ', text)
+    text = re.sub(r"<.*?>", " ", text)
 
     # Remove URLs
-    text = re.sub(r'http\S+|www\S+|https\S+', ' ', text)
+    text = re.sub(r"http\S+|www\S+|https\S+", " ", text)
 
-    # Remove emojis and non-English characters
-    text = re.sub(r'[^\x00-\x7F]+', ' ', text)
+    # Remove emojis / non-ASCII characters
+    text = re.sub(r"[^\x00-\x7F]+", " ", text)
 
-    # Remove punctuation and special characters
-    text = re.sub(r'[^a-zA-Z\s]', ' ', text)
+    # Keep only alphabets and spaces
+    text = re.sub(r"[^a-zA-Z\s]", " ", text)
 
     # Remove extra spaces
-    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Tokenization
+    tokens = word_tokenize(text)
+
+    # Stopword removal
+    tokens = [
+        word for word in tokens
+        if word not in stop_words
+    ]
+
+    # Lemmatization
+    tokens = [
+        lemmatizer.lemmatize(word)
+        for word in tokens
+    ]
+
+    # Join tokens
+    text = " ".join(tokens)
 
     return text
 
 
-# --------------------------------------------------
+# =========================================================
 # HTML + CSS
-# --------------------------------------------------
+# =========================================================
 
 HTML = """
+
 <!DOCTYPE html>
-<html lang="en">
+
+<html>
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>EmotionAI | Emotion Detector</title>
+    <title>Emotion Classifier</title>
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
 
     <style>
 
         * {
-            margin: 0;
-            padding: 0;
             box-sizing: border-box;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
-                         Roboto, Helvetica, Arial, sans-serif;
+
+            margin: 0;
 
             min-height: 100vh;
 
-            background:
-                radial-gradient(circle at top left, #312e81 0%, transparent 35%),
-                radial-gradient(circle at bottom right, #0f766e 0%, transparent 35%),
-                #0f172a;
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
 
-            color: #f8fafc;
+            background:
+                linear-gradient(
+                    135deg,
+                    #0f172a,
+                    #1e1b4b,
+                    #312e81
+                );
 
             display: flex;
-            align-items: center;
+
             justify-content: center;
+
+            align-items: center;
 
             padding: 30px;
+
+            color: #ffffff;
         }
+
 
         .container {
+
             width: 100%;
-            max-width: 850px;
-        }
 
-        .card {
-            background: rgba(15, 23, 42, 0.82);
+            max-width: 750px;
 
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(255,255,255,0.10);
 
             backdrop-filter: blur(18px);
+
             -webkit-backdrop-filter: blur(18px);
 
-            border-radius: 28px;
+            border: 1px solid rgba(255,255,255,0.15);
 
-            padding: 45px;
+            border-radius: 24px;
 
-            box-shadow:
-                0 25px 60px rgba(0, 0, 0, 0.35);
-        }
-
-        .logo {
-            width: 65px;
-            height: 65px;
-
-            display: flex;
-            align-items: center;
-            justify-content: center;
-
-            border-radius: 18px;
-
-            background: linear-gradient(
-                135deg,
-                #8b5cf6,
-                #06b6d4
-            );
-
-            font-size: 30px;
-
-            margin-bottom: 20px;
-
-            box-shadow: 0 10px 30px rgba(139, 92, 246, 0.3);
-        }
-
-        h1 {
-            font-size: 42px;
-            line-height: 1.1;
-
-            margin-bottom: 12px;
-
-            background: linear-gradient(
-                90deg,
-                #c4b5fd,
-                #67e8f9
-            );
-
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .subtitle {
-            color: #94a3b8;
-
-            font-size: 17px;
-
-            line-height: 1.6;
-
-            margin-bottom: 32px;
-        }
-
-        textarea {
-            width: 100%;
-
-            min-height: 180px;
-
-            resize: vertical;
-
-            background: rgba(30, 41, 59, 0.75);
-
-            border: 1px solid #334155;
-
-            border-radius: 18px;
-
-            padding: 20px;
-
-            color: #f8fafc;
-
-            font-size: 16px;
-
-            font-family: inherit;
-
-            outline: none;
-
-            transition: 0.25s;
-        }
-
-        textarea::placeholder {
-            color: #64748b;
-        }
-
-        textarea:focus {
-            border-color: #8b5cf6;
+            padding: 40px;
 
             box-shadow:
-                0 0 0 4px rgba(139, 92, 246, 0.12);
+                0 25px 60px rgba(0,0,0,0.35);
         }
 
-        .button {
-            width: 100%;
 
-            margin-top: 18px;
-
-            padding: 16px;
-
-            border: none;
-
-            border-radius: 15px;
-
-            cursor: pointer;
-
-            font-size: 16px;
-
-            font-weight: 700;
-
-            color: white;
-
-            background: linear-gradient(
-                135deg,
-                #7c3aed,
-                #0891b2
-            );
-
-            transition: all 0.25s ease;
-
-            box-shadow:
-                0 10px 25px rgba(124, 58, 237, 0.25);
-        }
-
-        .button:hover {
-            transform: translateY(-2px);
-
-            box-shadow:
-                0 15px 30px rgba(124, 58, 237, 0.35);
-        }
-
-        .button:active {
-            transform: translateY(0);
-        }
-
-        .result {
-            margin-top: 30px;
-
-            padding: 25px;
-
-            border-radius: 20px;
-
-            background: rgba(30, 41, 59, 0.75);
-
-            border: 1px solid rgba(255,255,255,0.1);
+        .header {
 
             text-align: center;
+
+            margin-bottom: 30px;
         }
 
-        .result-label {
-            color: #94a3b8;
 
-            font-size: 14px;
+        .emoji {
 
-            text-transform: uppercase;
-
-            letter-spacing: 2px;
+            font-size: 55px;
 
             margin-bottom: 10px;
         }
 
-        .emotion {
-            font-size: 36px;
 
-            font-weight: 800;
+        h1 {
 
-            background: linear-gradient(
-                90deg,
-                #c4b5fd,
-                #67e8f9
-            );
+            margin: 0;
 
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            font-size: 34px;
+
+            font-weight: 700;
         }
 
-        .confidence {
+
+        .subtitle {
+
             margin-top: 10px;
-
-            color: #94a3b8;
-
-            font-size: 14px;
-        }
-
-        .info {
-            display: flex;
-
-            justify-content: center;
-
-            gap: 12px;
-
-            flex-wrap: wrap;
-
-            margin-top: 28px;
-        }
-
-        .tag {
-            padding: 8px 14px;
-
-            border-radius: 999px;
-
-            background: rgba(51, 65, 85, 0.55);
 
             color: #cbd5e1;
 
-            font-size: 13px;
-
-            border: 1px solid rgba(255,255,255,0.08);
+            font-size: 16px;
         }
 
-        .error {
-            margin-top: 20px;
+
+        textarea {
+
+            width: 100%;
+
+            height: 170px;
+
+            resize: none;
+
+            border: none;
+
+            outline: none;
+
+            border-radius: 16px;
+
+            padding: 18px;
+
+            font-size: 17px;
+
+            font-family: inherit;
+
+            background: rgba(255,255,255,0.95);
+
+            color: #1e293b;
+
+            box-shadow:
+                inset 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+
+        textarea::placeholder {
+
+            color: #64748b;
+        }
+
+
+        .button {
+
+            width: 100%;
+
+            margin-top: 18px;
 
             padding: 15px;
 
-            border-radius: 12px;
+            border: none;
 
-            background: rgba(127, 29, 29, 0.25);
+            border-radius: 14px;
 
-            color: #fca5a5;
+            font-size: 17px;
 
-            border: 1px solid rgba(248, 113, 113, 0.2);
+            font-weight: 600;
 
-            text-align: center;
+            cursor: pointer;
+
+            color: white;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    #6366f1,
+                    #8b5cf6
+                );
+
+            transition: 0.25s;
+
+            box-shadow:
+                0 8px 20px rgba(99,102,241,0.35);
         }
 
-        footer {
+
+        .button:hover {
+
+            transform: translateY(-2px);
+
+            box-shadow:
+                0 12px 25px rgba(99,102,241,0.45);
+        }
+
+
+        .result {
+
+            margin-top: 28px;
+
+            padding: 25px;
+
             text-align: center;
+
+            border-radius: 18px;
+
+            background: rgba(255,255,255,0.10);
+
+            border: 1px solid rgba(255,255,255,0.15);
+        }
+
+
+        .result-title {
+
+            color: #cbd5e1;
+
+            font-size: 15px;
+
+            margin-bottom: 8px;
+        }
+
+
+        .prediction {
+
+            font-size: 35px;
+
+            font-weight: 700;
+
+            text-transform: capitalize;
+
+            margin-bottom: 12px;
+
+            color: #a5b4fc;
+        }
+
+
+        .confidence {
+
+            font-size: 18px;
+
+            color: #e2e8f0;
+        }
+
+
+        .bar-container {
+
+            width: 100%;
+
+            height: 10px;
+
+            background: rgba(255,255,255,0.15);
+
+            border-radius: 10px;
+
+            margin-top: 15px;
+
+            overflow: hidden;
+        }
+
+
+        .bar {
+
+            height: 100%;
+
+            border-radius: 10px;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    #818cf8,
+                    #c084fc
+                );
+        }
+
+
+        .info {
 
             margin-top: 25px;
 
-            color: #64748b;
+            text-align: center;
+
+            color: #94a3b8;
 
             font-size: 13px;
         }
+
+
+        .classes {
+
+            margin-top: 15px;
+
+            display: flex;
+
+            flex-wrap: wrap;
+
+            justify-content: center;
+
+            gap: 8px;
+        }
+
+
+        .class-tag {
+
+            padding: 6px 12px;
+
+            border-radius: 20px;
+
+            background: rgba(255,255,255,0.08);
+
+            color: #cbd5e1;
+
+            font-size: 12px;
+        }
+
 
         @media (max-width: 600px) {
 
@@ -339,195 +410,227 @@ HTML = """
                 padding: 15px;
             }
 
-            .card {
-                padding: 28px 20px;
-
-                border-radius: 22px;
+            .container {
+                padding: 25px;
             }
 
             h1 {
-                font-size: 32px;
+                font-size: 28px;
             }
 
-            .subtitle {
-                font-size: 15px;
+            .emoji {
+                font-size: 45px;
             }
 
-            textarea {
-                min-height: 150px;
-            }
-
-            .emotion {
-                font-size: 30px;
-            }
         }
 
     </style>
+
 </head>
 
 
 <body>
 
+
 <div class="container">
 
-    <div class="card">
 
-        <div class="logo">
-            🧠
+    <div class="header">
+
+        <div class="emoji">🧠💭</div>
+
+        <h1>Emotion Classifier</h1>
+
+        <div class="subtitle">
+            Enter a sentence and discover the emotion behind it.
         </div>
 
-        <h1>EmotionAI</h1>
-
-        <p class="subtitle">
-            Discover the emotion hidden in your text using
-            Machine Learning and Natural Language Processing.
-        </p>
+    </div>
 
 
-        <form method="POST">
+    <form method="POST">
 
-            <textarea
-                name="text"
-                placeholder="Type something like: 
-I am so happy today because I got my dream job!"
-                required
-            >{{ text }}</textarea>
-
-            <button class="button" type="submit">
-                ✨ Detect Emotion
-            </button>
-
-        </form>
+        <textarea
+            name="text"
+            placeholder="Example: I am extremely happy today..."
+            required>{{ text }}</textarea>
 
 
-        {% if prediction %}
+        <button class="button" type="submit">
 
-        <div class="result">
+            🔮 Predict Emotion
 
-            <div class="result-label">
-                Detected Emotion
-            </div>
+        </button>
 
-            <div class="emotion">
-                {{ prediction }}
-            </div>
+    </form>
 
-            {% if confidence %}
-            <div class="confidence">
-                Model confidence: {{ confidence }}%
-            </div>
-            {% endif %}
+
+    {% if prediction %}
+
+    <div class="result">
+
+        <div class="result-title">
+            Predicted Emotion
+        </div>
+
+
+        <div class="prediction">
+
+            {{ emotion_emoji }} {{ prediction }}
 
         </div>
 
-        {% endif %}
 
+        <div class="confidence">
 
-        {% if error %}
+            Confidence: {{ confidence }}%
 
-        <div class="error">
-            {{ error }}
         </div>
 
-        {% endif %}
+
+        <div class="bar-container">
+
+            <div
+                class="bar"
+                style="width: {{ confidence }}%;">
+            </div>
+
+        </div>
+
+    </div>
+
+    {% endif %}
 
 
-        <div class="info">
+    <div class="info">
 
-            <span class="tag">TF-IDF</span>
+        Powered by TF-IDF + Logistic Regression
 
-            <span class="tag">Logistic Regression</span>
+        <div class="classes">
 
-            <span class="tag">NLP</span>
+            <span class="class-tag">😡 Anger</span>
 
-            <span class="tag">6 Emotions</span>
+            <span class="class-tag">😨 Fear</span>
+
+            <span class="class-tag">😊 Joy</span>
+
+            <span class="class-tag">❤️ Love</span>
+
+            <span class="class-tag">😢 Sadness</span>
+
+            <span class="class-tag">😮 Surprise</span>
 
         </div>
 
     </div>
 
 
-    <footer>
-        Built with Python • Flask • Scikit-learn
-    </footer>
-
 </div>
+
 
 </body>
 
 </html>
+
 """
 
 
-# --------------------------------------------------
-# Routes
-# --------------------------------------------------
+# =========================================================
+# EMOTION EMOJIS
+# =========================================================
+
+emotion_emojis = {
+
+    "anger": "😡",
+
+    "fear": "😨",
+
+    "joy": "😊",
+
+    "love": "❤️",
+
+    "sadness": "😢",
+
+    "surprise": "😮"
+
+}
+
+
+# =========================================================
+# HOME / PREDICTION
+# =========================================================
 
 @app.route("/", methods=["GET", "POST"])
 def home():
 
     prediction = None
+
     confidence = None
-    error = None
+
     text = ""
+
+    emotion_emoji = "🧠"
+
 
     if request.method == "POST":
 
         text = request.form.get("text", "").strip()
 
-        if not text:
 
-            error = "Please enter some text."
+        if text:
 
-        else:
+            # Same preprocessing used during training
+            cleaned_text = clean_text(text)
 
-            try:
 
-                # Clean user input
-                cleaned_text = clean_text(text)
+            # IMPORTANT:
+            # Only transform using the already-fitted TF-IDF
+            text_vector = tfidf.transform([cleaned_text])
 
-                # Convert text into TF-IDF features
-                text_vector = tfidf.transform([cleaned_text])
 
-                # Prediction
-                prediction = model.predict(text_vector)[0]
+            # Prediction
+            prediction = model.predict(text_vector)[0]
 
-                # Probability / confidence
-                probabilities = model.predict_proba(text_vector)[0]
 
-                confidence = round(max(probabilities) * 100, 2)
+            # Probability
+            probabilities = model.predict_proba(text_vector)[0]
 
-                # Capitalize emotion
-                prediction = prediction.capitalize()
+            confidence = round(
+                max(probabilities) * 100,
+                2
+            )
 
-            except Exception as e:
 
-                error = "Something went wrong while processing your text."
-
-                print("ERROR:", e)
+            emotion_emoji = emotion_emojis.get(
+                prediction,
+                "🧠"
+            )
 
 
     return render_template_string(
+
         HTML,
+
         prediction=prediction,
+
         confidence=confidence,
-        error=error,
-        text=text
+
+        text=text,
+
+        emotion_emoji=emotion_emoji
+
     )
 
 
-# --------------------------------------------------
-# Render / Production Server
-# --------------------------------------------------
+# =========================================================
+# RUN APP
+# =========================================================
 
 if __name__ == "__main__":
-
-    import os
 
     port = int(os.environ.get("PORT", 5000))
 
     app.run(
         host="0.0.0.0",
-        port=port,
-        debug=False
+        port=port
     )
